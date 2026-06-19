@@ -1,3 +1,11 @@
+1. make sure https://github.com/SCE-Development/ws4kp is running, see readme
+1. do
+```
+docker-compose up
+```
+then check stream at rtmp://localhost/live/weather/live
+
+
 # <img alt="puppeteer screen recorder logo" width="128px" src="https://github.com/prasanaworld/puppeteer-screen-recorder/blob/main/asserts/puppeteer-screen-recorder.png" /> puppeteer-screen-recorder
 
 A puppeteer Plugin that uses the native [chrome devtool protocol](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-startScreencast) for capturing video frame by frame. Also supports an option to follow pages that are opened by the current page object.

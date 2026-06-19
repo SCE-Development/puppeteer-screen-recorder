@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import { CDPSession, Page } from 'puppeteer';
 
 import { PuppeteerScreenRecorderOptions } from './pageVideoStreamTypes';
+import { FfmpegStreamHandler } from './ffmpegStreamHandler';
 
 /**
  * @ignore
@@ -19,6 +20,8 @@ export class pageVideoStreamCollector extends EventEmitter {
     super();
     this.page = page;
     this.options = options;
+    console.log("options", options)
+
   }
 
   private get shouldFollowPopupWindow(): boolean {
@@ -92,11 +95,14 @@ export class pageVideoStreamCollector extends EventEmitter {
     await this.startScreenCast(true);
   }
 
+  // this gets the frames from the browser?
   private async handleScreenCastFrame(session) {
     this.isFrameAckReceived = new Promise((resolve) => {
+      const streamHandler = new FfmpegStreamHandler(this.page);
       session.on(
         'Page.screencastFrame',
         async ({ metadata, data, sessionId }) => {
+          streamHandler.writeBase64ImageToWeatherStream(data);
           if (!metadata.timestamp || this.isStreamingEnded) {
             return resolve();
           }

@@ -1,0 +1,25 @@
+version: '3'
+services:
+  streamer:
+    build:
+      context: ./
+      dockerfile: ./Dockerfile
+    volumes:
+      - ./src:/app/src
+    environment:
+      # for local development
+      - WS4KP_URL=http://host.docker.internal:8000
+      # - WS4KP_URL=http://ws4kp-ws4kp-nginx-1
+      - WS4KP_ZIPCODE="95112"
+      # for local development
+      # - RTMP_MUSIC_STREAM_URL=rtmp://host.docker.internal/live/weather/sound
+      # - RTMP_OUTPUT_URL=rtmp://host.docker.internal/live/weather/live
+      - RTMP_MUSIC_STREAM_URL=rtmp://nms/live/weather/sound
+      - RTMP_OUTPUT_URL=rtmp://nms/live/weather/live
+      # restart weather stream every 15 minutes
+      - RTMP_STREAM_KILL_INTERVAL_SECONDS=900
+  streaming-server:
+    container_name: nms
+    image: 'illuspas/node-media-server'
+    ports:
+      - '1935:1935'
