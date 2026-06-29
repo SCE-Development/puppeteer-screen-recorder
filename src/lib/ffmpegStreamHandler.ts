@@ -10,6 +10,7 @@ export class FfmpegStreamHandler {
     RTMP_STREAM_RESTART_DELAY_SECONDS = Number(process.env.RTMP_STREAM_RESTART_DELAY_SECONDS) || 30;
     RTMP_STREAM_KILL_INTERVAL_SECONDS = Number(process.env.RTMP_STREAM_KILL_INTERVAL_SECONDS) || 300; // every 5 minutes
     WS4KP_MAX_RELOAD_RETRIES = Number(process.env.WS4KP_MAX_RELOAD_RETRIES) || 3;
+    RTMP_STREAM_FRAMERATE = Number(process.env.RTMP_STREAM_FRAMERATE) || 24;
 
     constructor(page: any) {
         this.page = page;
@@ -25,15 +26,18 @@ export class FfmpegStreamHandler {
             // and also https://stackoverflow.com/a/62807083
             [
                 '-y',
-                '-framerate', '28', // adjust frame rate as needed
+                '-use_wallclock_as_timestamps', '1', // stamp frames by real arrival time so the stream stays at real-time
                 '-f', 'image2pipe',
                 '-c:v', 'mjpeg',
                 '-i', '-',
                 // '-i', process.env.RTMP_MUSIC_STREAM_URL,
                 '-c:v', 'libx264',
                 '-preset', 'ultrafast',
-                '-tune', 'stillimage',
+                '-tune', 'zerolatency',
                 '-pix_fmt', 'yuv420p',
+                '-r', String(this.RTMP_STREAM_FRAMERATE), // steady output rate
+                '-vsync', 'cfr', // duplicate/drop frames to hold real-time instead of lagging
+                '-g', String(this.RTMP_STREAM_FRAMERATE * 2), // 2s keyframe interval
                 '-f', 'flv',
                 process.env.RTMP_OUTPUT_URL,
             ], { stdio: ['pipe', 'pipe', 'pipe'] })
