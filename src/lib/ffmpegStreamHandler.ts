@@ -8,7 +8,6 @@ export class FfmpegStreamHandler {
     page: any;
 
     RTMP_STREAM_RESTART_DELAY_SECONDS = Number(process.env.RTMP_STREAM_RESTART_DELAY_SECONDS) || 30;
-    RTMP_STREAM_KILL_INTERVAL_SECONDS = Number(process.env.RTMP_STREAM_KILL_INTERVAL_SECONDS) || 300; // every 5 minutes
     WS4KP_MAX_RELOAD_RETRIES = Number(process.env.WS4KP_MAX_RELOAD_RETRIES) || 3;
     RTMP_STREAM_FRAMERATE = Number(process.env.RTMP_STREAM_FRAMERATE) || 24;
 
@@ -16,7 +15,6 @@ export class FfmpegStreamHandler {
         this.page = page;
         this.writeImageCommand = null;
         this.startLiveWeatherStream();
-        this.scheduleProcessRestart();
     }
 
     startLiveWeatherStream() {
@@ -54,7 +52,6 @@ export class FfmpegStreamHandler {
             logger.info('scheduling restart in', this.RTMP_STREAM_RESTART_DELAY_SECONDS, 'seconds')
             setTimeout(() => {
                 this.startLiveWeatherStream();
-                this.scheduleProcessRestart();
             }, this.RTMP_STREAM_RESTART_DELAY_SECONDS * 1000);
         });
 
@@ -101,15 +98,5 @@ export class FfmpegStreamHandler {
         if (this.writeImageCommand && !this.writeImageCommand.killed) {
             this.writeImageCommand.stdin.write(Buffer.from(base64Data, 'base64'));
         }
-    }
-
-    scheduleProcessRestart() {
-        setTimeout(() => {
-            if (this.writeImageCommand && !this.writeImageCommand.killed) {
-                logger.info('stopping ffmpeg process for weather website')
-                this.writeImageCommand.stdin.end();
-                this.writeImageCommand.kill();
-            }
-        }, this.RTMP_STREAM_KILL_INTERVAL_SECONDS * 1000);
     }
 }
