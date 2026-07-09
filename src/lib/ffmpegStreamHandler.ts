@@ -9,7 +9,7 @@ export class FfmpegStreamHandler {
 
     RTMP_STREAM_RESTART_DELAY_SECONDS = Number(process.env.RTMP_STREAM_RESTART_DELAY_SECONDS) || 30;
     WS4KP_MAX_RELOAD_RETRIES = Number(process.env.WS4KP_MAX_RELOAD_RETRIES) || 3;
-    RTMP_STREAM_FRAMERATE = Number(process.env.RTMP_STREAM_FRAMERATE) || 24;
+    RTMP_STREAM_FRAMERATE = Number(process.env.RTMP_STREAM_FRAMERATE) || 15;
 
     constructor(page: any) {
         this.page = page;
@@ -19,26 +19,64 @@ export class FfmpegStreamHandler {
 
     startLiveWeatherStream() {
         logger.info('starting weather live stream');
-        this.writeImageCommand = spawn("ffmpeg",
-            // from https://stackoverflow.com/a/61281547
-            // and also https://stackoverflow.com/a/62807083
-            [
-                '-y',
-                '-use_wallclock_as_timestamps', '1', // stamp frames by real arrival time so the stream stays at real-time
-                '-f', 'image2pipe',
-                '-c:v', 'mjpeg',
-                '-i', '-',
-                // '-i', process.env.RTMP_MUSIC_STREAM_URL,
-                '-c:v', 'libx264',
-                '-preset', 'ultrafast',
-                '-tune', 'zerolatency',
-                '-pix_fmt', 'yuv420p',
-                '-r', String(this.RTMP_STREAM_FRAMERATE), // steady output rate
-                '-vsync', 'cfr', // duplicate/drop frames to hold real-time instead of lagging
-                '-g', String(this.RTMP_STREAM_FRAMERATE * 2), // 2s keyframe interval
-                '-f', 'flv',
-                process.env.RTMP_OUTPUT_URL,
-            ], { stdio: ['pipe', 'pipe', 'pipe'] })
+
+        // Background music is published to the node-media-server "sound"
+        // channel by the separate `music` container. Pull it in as a second
+        // input and mux its audio into the outgoing stream. It's optional:
+        // without RTMP_MUSIC_STREAM_URL the stream stays video-only.
+        const musicStreamUrl = process.env.RTMP_MUSIC_STREAM_URL;
+
+        // from https://stackoverflow.com/a/61281547
+        // and also https://stackoverflow.com/a/62807083
+        const ffmpegArgs = [
+            '-y',
+            '-thread_queue_size', '1024', // buffer frames so a stalled 2nd input can't back up this pipe
+            '-use_wallclock_as_timestamps', '1', // stamp frames by real arrival time so the stream stays at real-time
+            '-f', 'image2pipe',
+            '-c:v', 'mjpeg',
+            '-i', '-', // input 0: browser frames piped in over stdin
+        ];
+
+        if (musicStreamUrl) {
+            // Stamp the music with the same wall-clock arrival time as the
+            // video so both inputs ride one clock. Without this the video's
+            // wall-clock timestamps and the RTMP stream's own (near-zero)
+            // timeline don't line up, and ffmpeg drops video frames trying to
+            // reconcile them -- the stream freezes and falls further behind.
+            ffmpegArgs.push(
+                '-thread_queue_size', '1024',
+                '-use_wallclock_as_timestamps', '1',
+                '-i', musicStreamUrl, // input 1: the music RTMP stream
+            );
+        }
+
+        ffmpegArgs.push(
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-tune', 'zerolatency',
+            '-pix_fmt', 'yuv420p',
+            '-r', String(this.RTMP_STREAM_FRAMERATE), // steady output rate
+            '-vsync', 'cfr', // duplicate/drop frames to hold real-time instead of lagging
+            '-g', String(this.RTMP_STREAM_FRAMERATE * 2), // 2s keyframe interval
+        );
+
+        if (musicStreamUrl) {
+            ffmpegArgs.push(
+                '-map', '0:v:0', // video from the piped browser frames
+                '-map', '1:a:0', // audio from the music stream
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-ar', '44100',
+                '-af', 'aresample=async=1', // add/drop samples to hold sync instead of stalling video
+            );
+        }
+
+        ffmpegArgs.push(
+            '-f', 'flv',
+            process.env.RTMP_OUTPUT_URL,
+        );
+
+        this.writeImageCommand = spawn("ffmpeg", ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] })
         // Capture stdout and stderr for debugging
         this.writeImageCommand.stdout.on('data', (data) => {
             console.log(`stdout: ${data}`);
