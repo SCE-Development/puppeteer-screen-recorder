@@ -23,3 +23,8 @@ services:
     image: 'illuspas/node-media-server'
     ports:
       - '1935:1935'
+networks:
+  default:
+    external:
+      name: poweredge
+
