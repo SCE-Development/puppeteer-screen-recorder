@@ -16,6 +16,8 @@ services:
       # - RTMP_OUTPUT_URL=rtmp://host.docker.internal/live/weather/live
       - RTMP_MUSIC_STREAM_URL=rtmp://nms/live/weather/sound
       - RTMP_OUTPUT_URL=rtmp://nms/live/weather/live
+    depends_on:
+      - streaming-server
   streaming-server:
     container_name: nms
     image: 'illuspas/node-media-server'

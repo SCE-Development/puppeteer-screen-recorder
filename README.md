@@ -1,9 +1,15 @@
-1. make sure https://github.com/SCE-Development/ws4kp is running, see readme
+1. make sure https://github.com/SCE-Development/ws4kp is running, see its readme.
+   the background music now lives there: ws4kp runs the `music` container and
+   the `combined.mp4` file it loops.
 1. do
 ```
 docker-compose up
 ```
 then check stream at rtmp://localhost/live/weather/live
+
+ws4kp's `music` container loops `combined.mp4`'s audio to the `sound` RTMP
+channel, and the streamer muxes that into the live output — so the weather
+stream still has music.
 
 
 # <img alt="puppeteer screen recorder logo" width="128px" src="https://github.com/prasanaworld/puppeteer-screen-recorder/blob/main/asserts/puppeteer-screen-recorder.png" /> puppeteer-screen-recorder
