@@ -8,8 +8,8 @@ services:
       - ./src:/app/src
     environment:
       # for local development
-      - WS4KP_URL=http://host.docker.internal:8000
-      # - WS4KP_URL=http://ws4kp-ws4kp-nginx-1
+      # - WS4KP_URL=http://host.docker.internal:8000
+      - WS4KP_URL=http://ws4kp-nginx
       - WS4KP_ZIPCODE="95112"
       # for local development
       # - RTMP_MUSIC_STREAM_URL=rtmp://host.docker.internal/live/weather/sound
