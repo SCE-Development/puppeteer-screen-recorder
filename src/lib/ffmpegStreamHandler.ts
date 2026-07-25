@@ -20,54 +20,51 @@ export class FfmpegStreamHandler {
     startLiveWeatherStream() {
         logger.info('starting weather live stream');
 
-        // Background music is published to the node-media-server "sound"
-        // channel by the separate `music` container. Pull it in as a second
-        // input and mux its audio into the outgoing stream. It's optional:
-        // without RTMP_MUSIC_STREAM_URL the stream stays video-only.
         const musicStreamUrl = process.env.RTMP_MUSIC_STREAM_URL;
 
-        // from https://stackoverflow.com/a/61281547
-        // and also https://stackoverflow.com/a/62807083
+        // Input 0: Video Pipe
+        // We keep wallclock here because raw piped JPEGs have no inherent timestamps
         const ffmpegArgs = [
             '-y',
-            '-thread_queue_size', '1024', // buffer frames so a stalled 2nd input can't back up this pipe
-            '-use_wallclock_as_timestamps', '1', // stamp frames by real arrival time so the stream stays at real-time
+            '-thread_queue_size', '1024',
+            '-use_wallclock_as_timestamps', '1', 
             '-f', 'image2pipe',
             '-c:v', 'mjpeg',
-            '-i', '-', // input 0: browser frames piped in over stdin
+            '-i', '-', 
         ];
 
+        // Input 1: Audio Stream
         if (musicStreamUrl) {
-            // Stamp the music with the same wall-clock arrival time as the
-            // video so both inputs ride one clock. Without this the video's
-            // wall-clock timestamps and the RTMP stream's own (near-zero)
-            // timeline don't line up, and ffmpeg drops video frames trying to
-            // reconcile them -- the stream freezes and falls further behind.
             ffmpegArgs.push(
                 '-thread_queue_size', '1024',
-                '-use_wallclock_as_timestamps', '1',
-                '-i', musicStreamUrl, // input 1: the music RTMP stream
+                // REMOVED: '-use_wallclock_as_timestamps', '1'
+                '-i', musicStreamUrl, 
             );
         }
 
+        // Video Output Flags
         ffmpegArgs.push(
             '-c:v', 'libx264',
             '-preset', 'ultrafast',
             '-tune', 'zerolatency',
             '-pix_fmt', 'yuv420p',
-            '-r', String(this.RTMP_STREAM_FRAMERATE), // steady output rate
-            '-vsync', 'cfr', // duplicate/drop frames to hold real-time instead of lagging
-            '-g', String(this.RTMP_STREAM_FRAMERATE * 2), // 2s keyframe interval
+            '-r', String(this.RTMP_STREAM_FRAMERATE),
+            // NEW: Resets the massive wall-clock timestamps to start at 0
+            '-vf', 'setpts=PTS-STARTPTS', 
+            '-vsync', 'cfr', 
+            '-g', String(this.RTMP_STREAM_FRAMERATE * 2),
         );
 
+        // Audio Output Flags and Muxing
         if (musicStreamUrl) {
             ffmpegArgs.push(
-                '-map', '0:v:0', // video from the piped browser frames
-                '-map', '1:a:0', // audio from the music stream
+                '-map', '0:v:0', 
+                '-map', '1:a:0', 
                 '-c:a', 'aac',
                 '-b:a', '128k',
                 '-ar', '44100',
-                '-af', 'aresample=async=1', // add/drop samples to hold sync instead of stalling video
+                // NEW: Resets audio timestamps to 0, then applies async to maintain sync
+                '-af', 'asetpts=PTS-STARTPTS,aresample=async=1', 
             );
         }
 
