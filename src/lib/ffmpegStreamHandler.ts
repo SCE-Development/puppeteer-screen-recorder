@@ -64,12 +64,17 @@ export class FfmpegStreamHandler {
                 '-b:a', '128k',
                 '-ar', '44100',
                 // NEW: Resets audio timestamps to 0, then applies async to maintain sync
-                '-af', 'asetpts=PTS-STARTPTS,aresample=async=1', 
+                '-af', 'asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0',
             );
         }
 
         ffmpegArgs.push(
+            // gives ffmpeg room to buffer and smooth out packet bursts 
+            // without dropping packets internally
+            '-max_muxing_queue_size', '1024',
             '-f', 'flv',
+            // tell vlc and other players not to expect standard file headers/durations
+            '-flvflags', 'no_duration_filesize',
             process.env.RTMP_OUTPUT_URL,
         );
 
