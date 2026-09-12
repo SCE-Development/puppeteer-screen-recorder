@@ -18,6 +18,7 @@ export class FfmpegStreamHandler {
     }
 
     startLiveWeatherStream() {
+        this.ffmpegBackpressured = false;
         logger.info('starting weather live stream');
 
         // Background music is published to the node-media-server "sound"
@@ -30,7 +31,7 @@ export class FfmpegStreamHandler {
         // and also https://stackoverflow.com/a/62807083
         const ffmpegArgs = [
             '-y',
-            '-thread_queue_size', '1024', // buffer frames so a stalled 2nd input can't back up this pipe
+            '-thread_queue_size', '256',
             '-use_wallclock_as_timestamps', '1', // stamp frames by real arrival time so the stream stays at real-time
             '-f', 'image2pipe',
             '-c:v', 'mjpeg',
@@ -55,8 +56,8 @@ export class FfmpegStreamHandler {
             '-preset', 'ultrafast',
             '-tune', 'zerolatency',
             '-pix_fmt', 'yuv420p',
-            '-r', String(this.RTMP_STREAM_FRAMERATE), // steady output rate
-            '-vsync', 'cfr', // duplicate/drop frames to hold real-time instead of lagging
+            '-vf', `setpts=PTS-STARTPTS,fps=${this.RTMP_STREAM_FRAMERATE}`,
+            '-fps_mode', 'cfr',
             '-g', String(this.RTMP_STREAM_FRAMERATE * 2), // 2s keyframe interval
         );
 
@@ -132,9 +133,35 @@ export class FfmpegStreamHandler {
         }
     }
 
+    private lastFrameTime = 0;
+    private ffmpegBackpressured = false;
+
     writeBase64ImageToWeatherStream(base64Data) {
-        if (this.writeImageCommand && !this.writeImageCommand.killed) {
-            this.writeImageCommand.stdin.write(Buffer.from(base64Data, 'base64'));
+        if (
+            !this.writeImageCommand ||
+            this.writeImageCommand.killed ||
+            this.ffmpegBackpressured
+        ) {
+            return;
+        }
+
+        const now = Date.now();
+        const frameInterval = 1000 / this.RTMP_STREAM_FRAMERATE;
+
+        if (now - this.lastFrameTime < frameInterval) {
+            return;
+        }
+
+        this.lastFrameTime = now;
+
+        const accepted = this.writeImageCommand.stdin.write(Buffer.from(base64Data, 'base64'),);
+
+        if (!accepted) {
+            this.ffmpegBackpressured = true;
+
+            this.writeImageCommand.stdin.once('drain', () => {
+                this.ffmpegBackpressured = false;
+            })
         }
     }
 }
