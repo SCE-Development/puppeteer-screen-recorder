@@ -68,23 +68,14 @@ import { PuppeteerScreenRecorder, } from './index'
   url.searchParams.append('location', process.env.WS4KP_ZIPCODE);
 
   await page.goto(url.href);
-  const frames = await page.frames();
-  const iframe = frames[0];
-  await iframe.evaluate(() => {
-    const iframe = document.getElementById('iframeTwc');
-  if (iframe) {
-    // Get the position relative to the document
-    const rect = iframe.getBoundingClientRect();
-    // Get current scroll positions
-    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-    const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-    
-    // Calculate absolute positions
-    const absoluteTop = rect.top + scrollTop;
-    const absoluteLeft = rect.left + scrollLeft;
-    
-    // Scroll to both coordinates
-    window.scrollTo(absoluteLeft, absoluteTop);
+  await page.evaluate(() => {
+  const element = document.getElementById('divTwc');
+  if (element) {
+    element.scrollIntoView({
+      behavior: 'instant', // Instant jump without waiting for animation frames
+      block: 'center',     // Vertically center the element in the viewport
+      inline: 'center',    // Horizontally center the element in the viewport
+    });
   }
   });
 })();
