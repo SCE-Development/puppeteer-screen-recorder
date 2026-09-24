@@ -16,6 +16,8 @@ services:
       # - RTMP_OUTPUT_URL=rtmp://host.docker.internal/live/weather/live
       - RTMP_MUSIC_STREAM_URL=rtmp://nms/live/weather/sound
       - RTMP_OUTPUT_URL=rtmp://nms/live/weather/live
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 networks:
   default:
     external:

@@ -107,17 +107,20 @@ export class pageVideoStreamCollector extends EventEmitter {
             return resolve();
           }
 
-          const ackPromise = session.send('Page.screencastFrameAck', {
-            sessionId: sessionId,
-          });
+          // 2. CRITICAL SYNC FIX: If FFmpeg's stream buffer needs to drain, 
+          // pause the execution block here until the pipe is empty.
+          if (streamHandler.writeImageCommand?.stdin && streamHandler.writeImageCommand.stdin.writableNeedDrain) {
+            await new Promise((res) => {
+              streamHandler.writeImageCommand.stdin.once('drain', res);
+            });
+          }
 
-          this.emit('pageScreenFrame', {
-            blob: Buffer.from(data, 'base64'),
-            timestamp: metadata.timestamp,
-          });
-
+          // 3. CRITICAL ACK FIX: We must AWAIT the acknowledgment.
+          // This forces Chromium to pause generating frames until this specific block resolves.
           try {
-            await ackPromise;
+            await session.send('Page.screencastFrameAck', {
+              sessionId: sessionId,
+            });
           } catch (error) {
             console.error(
               'Error in sending Acknowledgment for PageScreenCast',
