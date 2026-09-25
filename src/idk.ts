@@ -67,15 +67,33 @@ import { PuppeteerScreenRecorder, } from './index'
   // Append the query parameter
   url.searchParams.append('location', process.env.WS4KP_ZIPCODE);
 
-  await page.goto(url.href);
-  await page.evaluate(() => {
-  const element = document.getElementById('divTwc');
-  if (element) {
-    element.scrollIntoView({
-      behavior: 'instant', // Instant jump without waiting for animation frames
-      block: 'center',     // Vertically center the element in the viewport
-      inline: 'center',    // Horizontally center the element in the viewport
-    });
-  }
-  });
+  // Helper function to reload and scroll
+  const reloadAndScroll = async () => {
+    try {
+      console.log('Reloading page to keep content fresh...');
+      await page.goto(url.href);
+      await page.evaluate(() => {
+        const element = document.getElementById('divTwc');
+        if (element) {
+          element.scrollIntoView({
+            behavior: 'instant', // Instant jump without waiting for animation frames
+            block: 'center',     // Vertically center the element in the viewport
+            inline: 'center',    // Horizontally center the element in the viewport
+          });
+        }
+      });
+      console.log('Page reloaded and scrolled successfully.');
+    } catch (err) {
+      console.error('Error during scheduled page reload:', err);
+    }
+  };
+
+  // Initial execution
+  await reloadAndScroll();
+
+  // Schedule every 15 minutes (15 mins * 60 secs * 1000 ms)
+  const FIFTEEN_MINUTES = 15 * 60 * 1000;
+  setInterval(async () => {
+    await reloadAndScroll();
+  }, FIFTEEN_MINUTES);
 })();
