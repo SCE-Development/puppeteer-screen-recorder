@@ -12,21 +12,22 @@ RUN apk add --update --no-cache python3 && ln -sf python3 /usr/bin/python
 RUN set -x \
     && apk update \
     && apk upgrade \
-    # replacing default repositories with edge ones
-    # && echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing" > /etc/apk/repositories \
-    # && echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories \
-    # && echo "http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories \
-    # \
+    # 1. UNCOMMENT THESE LINES to get a modern version of Chromium (v124 -> v130+)
+    && echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing" > /etc/apk/repositories \
+    && echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories \
+    && echo "http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories \
+    \
     # Add the packages
     && apk add --no-cache dumb-init curl make gcc g++ python3 linux-headers binutils-gold gnupg libstdc++ nss chromium ffmpeg \
     \
-    && npm install puppeteer@0.13.0 \
+    # 2. FIX PUPPETEER: Version 0.13.0 is too old to control modern browsers.
+    # Use "puppeteer-core" to cleanly connect to the system-installed Chromium.
+    && npm install puppeteer-core \
     \
     # Do some cleanup
     && apk del --no-cache make gcc g++ python3 binutils-gold gnupg libstdc++ \
     && rm -rf /usr/include \
-    && rm -rf /var/cache/apk/* /root/.node-gyp /usr/share/man /tmp/* \
-    && echo
+    && rm -rf /var/cache/apk/* /root/.node-gyp /usr/share/man /tmp/*
 
 COPY package*.json ./
 

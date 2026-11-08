@@ -1,11 +1,11 @@
 const { spawn } = require('child_process');
-
 const logger = require('./logger');
 
 export class FfmpegStreamHandler {
     writeImageCommand: any;
     stopping: boolean;
     page: any;
+    isBackpressured: boolean = false;
 
     RTMP_STREAM_RESTART_DELAY_SECONDS = Number(process.env.RTMP_STREAM_RESTART_DELAY_SECONDS) || 30;
     WS4KP_MAX_RELOAD_RETRIES = Number(process.env.WS4KP_MAX_RELOAD_RETRIES) || 3;
@@ -19,34 +19,28 @@ export class FfmpegStreamHandler {
 
     startLiveWeatherStream() {
         logger.info('starting weather live stream');
-
-        // Background music is published to the node-media-server "sound"
-        // channel by the separate `music` container. Pull it in as a second
-        // input and mux its audio into the outgoing stream. It's optional:
-        // without RTMP_MUSIC_STREAM_URL the stream stays video-only.
         const musicStreamUrl = process.env.RTMP_MUSIC_STREAM_URL;
 
         // from https://stackoverflow.com/a/61281547
         // and also https://stackoverflow.com/a/62807083
         const ffmpegArgs = [
             '-y',
-            '-thread_queue_size', '1024', // buffer frames so a stalled 2nd input can't back up this pipe
-            '-use_wallclock_as_timestamps', '1', // stamp frames by real arrival time so the stream stays at real-time
+            '-threads', '4',
+            // Assign real-world clock timestamps to stdin video frames as they arrive
+            '-use_wallclock_as_timestamps', '1',
+            '-thread_queue_size', '4096',
             '-f', 'image2pipe',
+            '-framerate', String(this.RTMP_STREAM_FRAMERATE), // Define incoming stdin framerate
             '-c:v', 'mjpeg',
             '-i', '-', // input 0: browser frames piped in over stdin
         ];
 
         if (musicStreamUrl) {
-            // Stamp the music with the same wall-clock arrival time as the
-            // video so both inputs ride one clock. Without this the video's
-            // wall-clock timestamps and the RTMP stream's own (near-zero)
-            // timeline don't line up, and ffmpeg drops video frames trying to
-            // reconcile them -- the stream freezes and falls further behind.
             ffmpegArgs.push(
-                '-thread_queue_size', '1024',
-                '-use_wallclock_as_timestamps', '1',
-                '-i', musicStreamUrl, // input 1: the music RTMP stream
+                '-vn', // ignore video, just use audio from mp4 file
+                '-stream_loop', '-1', // Loop indefinitely
+                '-thread_queue_size', '4096',
+                '-i', '/app/src/combined.mp4', // Input 1: RTMP Audio
             );
         }
 
@@ -55,20 +49,22 @@ export class FfmpegStreamHandler {
             '-preset', 'ultrafast',
             '-tune', 'zerolatency',
             '-pix_fmt', 'yuv420p',
-            '-r', String(this.RTMP_STREAM_FRAMERATE), // steady output rate
-            '-vsync', 'cfr', // duplicate/drop frames to hold real-time instead of lagging
-            '-g', String(this.RTMP_STREAM_FRAMERATE * 2), // 2s keyframe interval
+            '-r', String(this.RTMP_STREAM_FRAMERATE),
+            '-g', String(this.RTMP_STREAM_FRAMERATE * 2),
         );
 
         if (musicStreamUrl) {
-            ffmpegArgs.push(
-                '-map', '0:v:0', // video from the piped browser frames
-                '-map', '1:a:0', // audio from the music stream
-                '-c:a', 'aac',
-                '-b:a', '128k',
-                '-ar', '44100',
-                '-af', 'aresample=async=1', // add/drop samples to hold sync instead of stalling video
-            );
+            // ffmpegArgs.push(
+            //     '-map', '0:v:0',
+            //     '-map', '1:a:0',
+            //     '-c:a', 'aac', // Transcode audio to allow pitch-safe resampling
+            //     '-b:a', '128k',
+            //     '-ar', '44100',
+            //     // Keep audio synced without altering pitch when video timestamps jitter
+            //     '-af', 'aresample=async=1000:min_hard_comp=0.100000',
+            // );
+        } else {
+            ffmpegArgs.push('-an'); // Explicitly disable audio if no music URL provided
         }
 
         ffmpegArgs.push(
@@ -76,39 +72,35 @@ export class FfmpegStreamHandler {
             process.env.RTMP_OUTPUT_URL,
         );
 
-        this.writeImageCommand = spawn("ffmpeg", ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] })
-        // Capture stdout and stderr for debugging
-        this.writeImageCommand.stdout.on('data', (data) => {
-            console.log(`stdout: ${data}`);
+        // Inherit or pipe stdin safely
+        this.writeImageCommand = spawn("ffmpeg", ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+
+        // Handle backpressure events on stdin
+        this.writeImageCommand.stdin.on('drain', () => {
+            this.isBackpressured = false;
+        });
+
+        this.writeImageCommand.stdout.on('data', () => {
+            // Keep lightweight or suppress in production to avoid high stdout overhead
         });
 
         this.writeImageCommand.stderr.on('data', (data) => {
-            console.error(`stderr: ${data}`);
+            const str = data.toString();
+            // Log errors or specific metrics if needed
+            if (str.includes('Error')) logger.error(`FFmpeg stderr: ${str}`);
         });
-        this.writeImageCommand.on('exit', async () => {
+        this.writeImageCommand.on('exit', async (code) => {
+            logger.info(`FFmpeg process exited with code ${code}`);
             this.reloadWebpage();
-            logger.info('scheduling restart in', this.RTMP_STREAM_RESTART_DELAY_SECONDS, 'seconds')
+            logger.info('scheduling restart in', this.RTMP_STREAM_RESTART_DELAY_SECONDS, 'seconds');
             setTimeout(() => {
                 this.startLiveWeatherStream();
             }, this.RTMP_STREAM_RESTART_DELAY_SECONDS * 1000);
         });
 
-        // We need this empty handler so the process exits when running
-        // docker on a linux platform
-        this.writeImageCommand.stdin.on('close', function (code, signal) {
-            logger.debug('closed with params', { code, signal })
-        });
-        this.writeImageCommand.on('close', (code, signal) => {
-            logger.info(`ffmpeg process closed with code ${code} and signal ${signal}`);
-        });
-
-        this.writeImageCommand.on('error', (err) => {
-            logger.error('Error with ffmpeg process:', err);
-        });
-        this.writeImageCommand.stdin.on('error', function (err) {
-            logger.debug('caught stdin error with code', err.code)
-            if (err.code == "EPIPE") {
-                // process.exit(0);
+        this.writeImageCommand.stdin.on('error', (err) => {
+            if (err.code !== 'EPIPE') {
+                logger.error('Stdin error:', err);
             }
         });
     }
@@ -121,9 +113,11 @@ export class FfmpegStreamHandler {
                 await this.page.waitForSelector('body');
                 const frames = await this.page.frames();
                 const iframe = frames[0];
-                await iframe.evaluate(() => {
-                    document.documentElement.scrollTop = 0; // Scroll to the top of the iframe
-                });
+                if (iframe) {
+                    await iframe.evaluate(() => {
+                        document.documentElement.scrollTop = 0;
+                    });
+                }
                 logger.info('reloaded page');
                 break;
             } catch (e) {
@@ -133,8 +127,21 @@ export class FfmpegStreamHandler {
     }
 
     writeBase64ImageToWeatherStream(base64Data) {
-        if (this.writeImageCommand && !this.writeImageCommand.killed) {
-            this.writeImageCommand.stdin.write(Buffer.from(base64Data, 'base64'));
+        // Prevent buffer bloat: Drop incoming frame if FFmpeg buffer is full or stdin is closed
+        if (!this.writeImageCommand || this.writeImageCommand.killed || !this.writeImageCommand.stdin.writable) {
+            return;
+        }
+
+        if (this.isBackpressured) {
+            // Frame dropped intentionally to protect RAM and maintain real-time sync
+            return;
+        }
+
+        const buffer = Buffer.from(base64Data, 'base64');
+        const canWrite = this.writeImageCommand.stdin.write(buffer);
+
+        if (!canWrite) {
+            this.isBackpressured = true;
         }
     }
 }
